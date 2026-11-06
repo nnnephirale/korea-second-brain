@@ -1,0 +1,10 @@
+{
+  "name": "Korea 2026",
+  "short_name": "Korea",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fbfbfb",
+  "theme_color": "#fbfbfb",
+  "icons": [{ "src": "./icon-180.png", "sizes": "180x180", "type": "image/png" }]
+}
