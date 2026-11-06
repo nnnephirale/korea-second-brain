@@ -1,4 +1,4 @@
-const CACHE = 'korea-second-brain-shell-v1';
+const CACHE = 'korea-second-brain-shell-v2';
 const ROOT = self.registration.scope;
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll([ROOT, new URL('manifest.webmanifest', ROOT).href, new URL('icon-180.png', ROOT).href])).then(() => self.skipWaiting()));
