@@ -92,16 +92,24 @@ function postSourceRows(item) {
    : `<div class="sourceLine"><a href="${esc(url)}" target="_blank" rel="noopener">Open TikTok ${i+1} ↗</a></div>`;
  }).join('');
 }
-async function storeOfflineClip(id, file) {
-  const db = await clipDB;
-  await new Promise((resolve, reject) => {
-    const tx = db.transaction('clips', 'readwrite');
-    tx.objectStore('clips').put({ id, blob: file, name: file.name, size: file.size, savedAt: Date.now() });
-    tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+async function getSavedClip(id) {
+  const db=await clipDB;
+  return new Promise((resolve,reject)=>{
+    const request=db.transaction('clips').objectStore('clips').get(id);
+    request.onsuccess=()=>resolve(request.result||null);request.onerror=()=>reject(request.error);
   });
-  const previous = offlineClips.get(id);
-  if (previous) URL.revokeObjectURL(previous.url);
-  offlineClips.set(id, { id, url: URL.createObjectURL(file), name: file.name, size: file.size });
+}
+async function storeOfflineClip(id,file) {
+  const db=await clipDB;
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction('clips','readwrite');let settled=false;
+    const finish=(fn,value)=>{if(settled)return;settled=true;clearTimeout(timer);fn(value)};
+    const timer=setTimeout(()=>{try{tx.abort()}catch{}finish(reject,new Error('Phone storage stopped responding. Check free space, then add the ZIP again. Clips already saved will be skipped.'))},120000);
+    tx.objectStore('clips').put({id,blob:file,name:file.name,size:file.size,savedAt:Date.now()});
+    tx.oncomplete=()=>finish(resolve);tx.onabort=()=>finish(reject,tx.error||new Error('Phone storage could not save this clip. Check free space and try again.'));tx.onerror=()=>{};
+  });
+  const previous=offlineClips.get(id);if(previous)URL.revokeObjectURL(previous.url);
+  offlineClips.set(id,{id,url:URL.createObjectURL(file),name:file.name,size:file.size});
 }
 async function importVideoArchive(zipFile,onProgress=()=>{}) {
  const tailSize=Math.min(zipFile.size,65557),tailStart=zipFile.size-tailSize;
@@ -127,11 +135,15 @@ async function importVideoArchive(zipFile,onProgress=()=>{}) {
   const header=new DataView(await zipFile.slice(local,local+30).arrayBuffer());
   if(header.getUint32(0,true)!==0x04034b50)throw new Error('A video in this ZIP is damaged.');
   const dataStart=local+30+header.getUint16(26,true)+header.getUint16(28,true),fileName=name.split('/').pop(),id=fileName.match(/(\d{9,})(?=\.[^.]+$)/)?.[1];
-  onProgress({percent:totalBytes?Math.floor(completedBytes/totalBytes*100):0,completed:index,total:videos.length,phase:'saving',name:fileName});
+  onProgress({percent:totalBytes?Math.floor(completedBytes/totalBytes*100):0,completed:index,total:videos.length,phase:'checking',name:fileName});
   if(!id)skipped++;
   else{
-   const blob=zipFile.slice(dataStart,dataStart+compressed,'video/mp4');
-   await storeOfflineClip(id,new File([blob],fileName,{type:'video/mp4'}));saved++;
+   const existing=await getSavedClip(id);
+   if(existing&&existing.name===fileName&&existing.size===compressed)saved++;
+   else{
+    const blob=zipFile.slice(dataStart,dataStart+compressed,'video/mp4');
+    await storeOfflineClip(id,new File([blob],fileName,{type:'video/mp4'}));saved++;
+   }
   }
   completedBytes+=compressed;
   onProgress({percent:totalBytes?Math.floor(completedBytes/totalBytes*100):Math.floor((index+1)/Math.max(1,videos.length)*100),completed:index+1,total:videos.length,phase:'saved',name:fileName});
@@ -176,8 +188,9 @@ document.getElementById('videoArchive').addEventListener('change',async event=>{
   }
  }catch(error){failed.push(error.message||'Could not read a video pack.');updateImportProgress({percent:lastImportPercent,phase:'error',name:`Stopped at ${lastImportPercent}% · ${failed.at(-1)} · re-add ZIP to continue`})}
  event.target.value='';updateOfflineSummary();render();if(activeId)drawModal();button.disabled=false;button.textContent='Add video pack';document.body.classList.remove('importing');
- if(saved){updateImportProgress({percent:100,completed:saved,total:saved+skipped,phase:'done'});toast(`${saved} videos saved on this phone${skipped?` · ${skipped} skipped`:''}`);document.getElementById('prepareOffline').click()}
- else if(!failed.length){importProgress.hidden=true;toast(skipped?`Found ${skipped} video files but couldn't match their TikTok IDs.`:'No video files were found in that ZIP.')}
+ if(failed.length){toast(`${saved} clips are ready; import stopped at ${lastImportPercent}%. ${failed.at(-1)}`)}
+ else if(saved){updateImportProgress({percent:100,completed:saved,total:saved+skipped,phase:'done'});toast(`${saved} videos saved on this phone${skipped?` · ${skipped} skipped`:''}`);document.getElementById('prepareOffline').click()}
+ else if(!failed.length&&!saved){importProgress.hidden=true;toast(skipped?`Found ${skipped} video files but couldn't match their TikTok IDs.`:'No video files were found in that ZIP.')}
 });
 document.getElementById('addVideos').onclick = () => document.getElementById('videoFiles').click();
 document.getElementById('videoFiles').addEventListener('change', async event => {
