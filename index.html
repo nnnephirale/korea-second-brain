@@ -102,7 +102,7 @@ async function importVideoArchive(zipFile) {
   const header=new DataView(await zipFile.slice(local,local+30).arrayBuffer());
   if(header.getUint32(0,true)!==0x04034b50)throw new Error('A video in this ZIP is damaged.');
   const dataStart=local+30+header.getUint16(26,true)+header.getUint16(28,true);
-  const fileName=name.split('/').pop(),id=fileName.match(/(\d{9,})(?=\D*$)/)?.[1];
+  const fileName=name.split('/').pop(),id=fileName.match(/(\d{9,})(?=\.[^.]+$)/)?.[1];
   if(!id){skipped++;continue}
   const blob=zipFile.slice(dataStart,dataStart+compressed,'video/mp4');
   await storeOfflineClip(id,new File([blob],fileName,{type:'video/mp4'})); saved++;
@@ -134,14 +134,14 @@ document.getElementById('videoArchive').addEventListener('change', async event =
  event.target.value=''; updateOfflineSummary(); render(); if(activeId)drawModal();
  button.disabled=false; button.textContent='Add video pack';
  if(saved){toast(`${saved} videos saved on this phone${skipped?` · ${skipped} skipped`:''}`);document.getElementById('prepareOffline').click()}
- else toast(failed[0]||'No videos found in that ZIP.');
+ else toast(failed[0]||(skipped?`Found ${skipped} video files but couldn't match their TikTok IDs.`:'No video files were found in that ZIP.'));
 });
 document.getElementById('addVideos').onclick = () => document.getElementById('videoFiles').click();
 document.getElementById('videoFiles').addEventListener('change', async event => {
   const files = [...(event.target.files || [])];
   let saved = 0, skipped = 0;
   for (const file of files) {
-    const id = file.name.match(/(\d{9,})(?=\D*$)/)?.[1];
+    const id = file.name.match(/(\d{9,})(?=\.[^.]+$)/)?.[1];
     if (!id) { skipped++; continue; }
     try { await storeOfflineClip(id, file); saved++; } catch { skipped++; }
   }
